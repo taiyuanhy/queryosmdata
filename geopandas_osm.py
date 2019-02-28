@@ -64,7 +64,7 @@ def query_osm(typ, bbox=None, recurse=None, tags='', raw=False,
             tags='name~[Mm]agazine'
                 Match if the 'name' tag matches the regular expression
 
-            Specify a list of tag requests to match all of them
+            Specify a list of tag requests to match all of them or the any of them
             tags=['highway', 'name~"^Magazine"']
                 Match tags that have 'highway' and where 'name' starts
                 with 'Magazine'
@@ -76,7 +76,15 @@ def query_osm(typ, bbox=None, recurse=None, tags='', raw=False,
     meta : boolean, default False
         Indicates whether to query the metadata with each OSM object. This
         includes the changeset, timestamp, uid, user, and version.
+    operation: {'and', 'or'}, default 'and'
+        the operation of query conditions
+        'and' :  return a list of tag requests to match all of them
+        'or' :  return a list of tag requests to match any of them
 
+    way_type:{'Line','Polygon'} (optional)
+        when typ equals 'way'
+        'Line' : the type of geometry in geodataframe is LineString
+        'Polygon' : the type of geometry in geodataframe is Polygon
     Returns
     -------
     df - GeoDataFrame
@@ -273,13 +281,13 @@ def read_relations(doc):
 
     return relmembers, reltags
 
-
-def render_to_gdf(osmdata, drop_untagged=True,geometry_type = 'Line'):
+# if data contains way data ,the way_type decides the geometry type of way data in geodataframe is LineSting or Polygon
+def render_to_gdf(osmdata, drop_untagged=True,way_type = 'Line'):
     nodes = render_nodes(osmdata.nodes, drop_untagged)
     ways = None
-    if geometry_type == 'Line':
+    if way_type == 'Line':
         ways = render_ways(osmdata.nodes, osmdata.waynodes, osmdata.waytags)
-    if geometry_type == 'Polygon':
+    if way_type == 'Polygon':
         ways = render_polygons(osmdata.nodes, osmdata.waynodes, osmdata.waytags)
     if ways is not None:
         # We should get append working
@@ -298,7 +306,7 @@ def render_nodes(nodes, drop_untagged=True):
 
     return nodes
 
-
+# render linestring
 def render_ways(nodes, waynodes, waytags):
     if waynodes is None or waynodes.empty:
         return None
@@ -318,7 +326,7 @@ def render_ways(nodes, waynodes, waytags):
     ways.reset_index(inplace=True)
 
     return ways
-
+# render polygon
 def render_polygons(nodes, polygonnodes, waytags):
     if polygonnodes is None or polygonnodes.empty:
         return None

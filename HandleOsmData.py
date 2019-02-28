@@ -13,11 +13,11 @@ app = Flask(__name__)
 
 @app.route('/')
 def hello_world():
-    return 'osm downloader is running on port 5000'
+    return 'osm downloader is running on port 5060'
 
 @app.route('/hello')
 def hello():
-    return 'osm downloader is running on port 5000'
+    return 'osm downloader is running on port 5060'
 
 @app.route('/processData')
 def processData():
@@ -30,13 +30,14 @@ def processData():
     extent['max_lon'] = float(boundary[2])
     print('extent:' + json.dumps(extent))
     featureTypeList = ['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station',
-                      'restaurant', 'bank','education']
+                      'restaurant', 'bank']
     # featureTypeList = ['building']
     config_all = dict()
     try:
         for featureType in featureTypeList:
             config = getOSMData(extent, featureType)
-            config_all = dict(config_all, **config)
+            if len(config[featureType]) > 0:
+                config_all = dict(config_all, **config)
         print(json.dumps(config_all))
         return json.dumps({'success': 1, 'data': config_all})
     except Exception, e:
@@ -54,7 +55,7 @@ def getOSMData(extent, feature_type):
     result = None
     if feature_type == 'motorway':
         df = osm.query_osm('way', boundary, recurse='down', tags=['highway=motorway', 'highway=motorway_link'],
-                           operation='or', geometry_type='Line')
+                           operation='or', way_type='Line')
         result = df
         if not df.empty:
             result = df[df.type == 'LineString'][['highway', 'geometry']]
@@ -62,7 +63,7 @@ def getOSMData(extent, feature_type):
     elif feature_type == 'primary':
         df = osm.query_osm('way', boundary, recurse='down',
                            tags=['highway=primary', 'highway=primary_link', 'highway=trunk', 'highway=trunk_link'],
-                           operation='or', geometry_type='Line')
+                           operation='or', way_type='Line')
         result = df
         if not df.empty:
             result = df[df.type == 'LineString'][['highway', 'geometry']]
@@ -71,20 +72,20 @@ def getOSMData(extent, feature_type):
         df = osm.query_osm('way', boundary, recurse='down',
                            tags=['highway=secondary', 'highway=secondary_link', 'highway=tertiary',
                                  'highway=tertiary_link'],
-                           operation='or', geometry_type='Line')
+                           operation='or', way_type='Line')
         result = df
         if not df.empty:
             result = df[df.type == 'LineString'][['highway', 'geometry']]
             result = mergeGeoDataFrameByField(result, 'highway')
     elif feature_type == 'smallRoad':
         df = osm.query_osm('way', boundary, recurse='down', tags=['highway=residential'],
-                           operation='or', geometry_type='Line')
+                           operation='or', way_type='Line')
         result = df
         if not df.empty:
             result = df[df.type == 'LineString'][['highway', 'geometry']]
             result = mergeGeoDataFrameByField(result, 'highway')
     elif feature_type == 'building':
-        df = osm.query_osm('way', boundary, recurse='down', tags='building', geometry_type='Polygon')
+        df = osm.query_osm('way', boundary, recurse='down', tags='building', way_type='Polygon')
         columns = df.columns.values.tolist()
         filter_list = ['geometry', 'building']
         if 'height' in columns:
@@ -100,14 +101,14 @@ def getOSMData(extent, feature_type):
     elif feature_type == 'green':
         df = osm.query_osm('way', boundary, recurse='down',
                            tags=['natural=wood', 'natural=tree', 'natural=scrub', 'natrual=grassland',
-                                 'leisure=golf_course', 'leisure=park'], operation='or', geometry_type='Polygon')
+                                 'leisure=golf_course', 'leisure=park'], operation='or', way_type='Polygon')
         result = df
         if not df.empty:
             result = df[df.type == 'Polygon'][['geometry']]
             result['natural'] = 'green'
             result = mergeGeoDataFrameByField(result, 'natural')
     elif feature_type == 'water':
-        df = osm.query_osm('way', boundary, recurse='down', tags='natural=water', geometry_type='Polygon')
+        df = osm.query_osm('way', boundary, recurse='down', tags='natural=water', way_type='Polygon')
         result = df
         if not df.empty:
             result = df[df.type == 'Polygon'][['geometry','natural']]
@@ -135,7 +136,7 @@ def getOSMData(extent, feature_type):
         result = df
         if not df.empty:
             result = df[df.type == 'Point'][['geometry', 'amenity']]
-    config_dict = {feature_type: 'no data of type '+feature_type}
+    config_dict = {feature_type: ''}
     if result is not None:
         if not result.empty:
             # print(result.head())
