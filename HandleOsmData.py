@@ -1,7 +1,10 @@
 # coding: utf-8
 import geopandas_osm as osm
 import math
+import geopandas as gpd
 from shapely.geometry import Polygon
+from shapely.geometry import MultiLineString
+from shapely.ops import cascaded_union
 # import matplotlib.pyplot as plt
 import json
 import time
@@ -146,16 +149,24 @@ def getOSMData(extent, feature_type):
             config_dict[feature_type] = output_filepath
             if not os.path.exists(outputPath):
                 os.makedirs(outputPath)
-            result.to_file(output_filepath, driver='GeoJSON')
+            result.to_file(output_filepath,'GeoJSON')
+            # geojson_str = result.to_json()
+            # output = open(output_filepath, 'w')
+            # output.write(geojson_str)
+            # output.close()
     print('feature_type:' + feature_type + ' end,featureCount is '+str(len(result)))
     return config_dict
     # result.plot()
     # plt.show()
 
 
-def mergeGeoDataFrameByField(geodataframe, field):
-    result = geodataframe.dissolve(by=field)
-    result[field] = result.index.values
+def mergeGeoDataFrameByField(geodataframe, field):  
+    result = gpd.GeoDataFrame()  
+    geometry_list = geodataframe['geometry'].tolist()
+#     merge all geometries into one multiGeos
+    multigeos = cascaded_union(geometry_list)
+    result['geometry'] = gpd.GeoSeries(multigeos)
+    result[field] = [field]
     return result
 
 def handleBuildingData(geodataframe):
@@ -177,9 +188,8 @@ def handleBuildingData(geodataframe):
                     height_list.append(height)
                     continue
         elif 'building:levels' in columns:
-            if v['building:levels'] is not None:
-                temp_levels = float(v['building:levels'])
-                if math.isnan(temp_levels) is False:
+                if isNum2(v['building:levels']):
+                    temp_levels = float(v['building:levels'])
                     height = 3 * temp_levels
                     height_list.append(height)
                     continue
@@ -189,6 +199,20 @@ def handleBuildingData(geodataframe):
     geodataframe = geodataframe.drop(index = underground_list)
     # print(geodataframe.to_json())
     return geodataframe
+# 判断是否为浮点数
+def isNum2(value):
+    try:
+        x = float(value) #此处更改想判断的类型
+    except TypeError:
+        return False
+    except ValueError:
+        return False
+    except Exception as e:
+        return False
+    else:
+        if math.isnan(x):
+            return False
+        return True
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5060)
