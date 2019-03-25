@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 outputPath = 'e:\\osmdownloader'
 defaultHeight = 15
-callback_address = 'http://192.168.10.21:8888/downloadData/'
+callback_address = 'http://192.168.10.235:8888/downloadData/'
 featureTypeList = ['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station','restaurant', 'bank']
 
 executor = ThreadPoolExecutor(max_workers=4)
@@ -39,6 +39,7 @@ def hello():
 def processData():
     try:
         boundary_param = request.args['bbox']
+        openid = request.headers["Openid"]
         task_code = request.args['code']
         boundary = boundary_param.split(',')
         extent = dict()
@@ -48,7 +49,7 @@ def processData():
         extent['max_lon'] = float(boundary[2])
         logger.info('extent:' + json.dumps(extent))
         # 异步执行任务
-        executor.submit(task_run,task_code,extent)
+        executor.submit(task_run,task_code,extent,openid)
         return json.dumps({"code":task_code,"success":1})
     except Exception, e:
         traceback.print_exc()
@@ -64,7 +65,7 @@ def processData():
         dict.ordercode:订单编号
         dict.result: 如果成功返回数据信息 如果失败显示错误信息
 """
-def task_run(task_code,extent):
+def task_run(task_code,extent,openid):
     config_all = dict()
     percent = 0
     interval = 100 / len(featureTypeList)
@@ -79,7 +80,7 @@ def task_run(task_code,extent):
             # 更新任务状态
             update_process_url = callback_address + 'updatePercent?code=' + task_code + '&percent='+str(percent)
             logger.info('update state:'+update_process_url)
-            http_request = urllib2.Request(update_process_url)
+            http_request = urllib2.Request(update_process_url,headers={'OpenId':openid})
             urllib2.urlopen(http_request)
             logger.info('update finished:'+update_process_url)
             if len(config[feature_type]) > 0:
@@ -89,7 +90,7 @@ def task_run(task_code,extent):
         complete_url += '1'
         logger.info('task complete :' + complete_url)
         data = json.dumps(config_all).encode('utf-8')
-        http_request = urllib2.Request(complete_url, data=data, headers={'Content-Type': 'application/json'})
+        http_request = urllib2.Request(complete_url, data=data, headers={'Content-Type': 'application/json','OpenId':openid})
         urllib2.urlopen(http_request)
         logger.info('task complete finished: '+complete_url)
     except Exception, e:
@@ -97,7 +98,7 @@ def task_run(task_code,extent):
         #完成后更新任务状态
         complete_url += '0'
         data = urllib2.urlencode({'errorMessage': str(e)})
-        http_request = urllib2.Request(complete_url, data=data)
+        http_request = urllib2.Request(complete_url, data=data,headers={'OpenId':openid})
         urllib2.urlopen(http_request)
 
 # 获取当前时间
