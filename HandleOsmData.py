@@ -12,7 +12,20 @@ import os
 from flask import Flask
 from flask import request
 import traceback
+import urllib2
+import logging
+from concurrent.futures import ThreadPoolExecutor
+
+outputPath = 'e:\\osmdownloader'
+defaultHeight = 15
+callback_address = 'http://192.168.10.21:8888/downloadData/'
+featureTypeList = ['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station','restaurant', 'bank']
+
+executor = ThreadPoolExecutor(max_workers=4)
 app = Flask(__name__)
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s',
+                    level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @app.route('/')
 def hello_world():
@@ -24,35 +37,83 @@ def hello():
 
 @app.route('/processData')
 def processData():
-    boundary_param = request.args['bbox']
-    boundary = boundary_param.split(',')
-    extent = dict()
-    extent['min_lat'] = float(boundary[1])
-    extent['min_lon'] = float(boundary[0])
-    extent['max_lat'] = float(boundary[3])
-    extent['max_lon'] = float(boundary[2])
-    print('extent:' + json.dumps(extent))
-    featureTypeList = ['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station',
-                      'restaurant', 'bank']
-    # featureTypeList = ['building']
-    config_all = dict()
     try:
-        for featureType in featureTypeList:
-            config = getOSMData(extent, featureType)
-            if len(config[featureType]) > 0:
-                config_all = dict(config_all, **config)
-        print(json.dumps(config_all))
-        return json.dumps({'success': 1, 'data': config_all})
+        boundary_param = request.args['bbox']
+        task_code = request.args['code']
+        boundary = boundary_param.split(',')
+        extent = dict()
+        extent['min_lat'] = float(boundary[1])
+        extent['min_lon'] = float(boundary[0])
+        extent['max_lat'] = float(boundary[3])
+        extent['max_lon'] = float(boundary[2])
+        logger.info('extent:' + json.dumps(extent))
+        # 异步执行任务
+        executor.submit(task_run,task_code,extent)
+        return json.dumps({"code":task_code,"success":1})
     except Exception, e:
         traceback.print_exc()
-        return json.dumps({'success': 0, 'message': str(e)})
-outputPath = 'e:\\osmdownloader'
-defaultHeight = 15
+        return json.dumps({"message":str(e),"success":0})
 
+"""下载OSM数据的接口
+    Args:
+        bbox: 数据范围
+        ordercode:订单编号
+    Returns:
+        dict 返回信息
+        dict.success:1 成功 0 失败
+        dict.ordercode:订单编号
+        dict.result: 如果成功返回数据信息 如果失败显示错误信息
+"""
+def task_run(task_code,extent):
+    config_all = dict()
+    percent = 0
+    interval = 100 / len(featureTypeList)
+
+    complete_url = callback_address + 'complete?code=' + task_code + '&success='
+    try:
+        for feature_type in featureTypeList:
+            config = getOSMData(extent, feature_type)
+            percent += interval
+            if percent > 100:
+                percent = 100
+            # 更新任务状态
+            update_process_url = callback_address + 'updatePercent?code=' + task_code + '&percent='+str(percent)
+            logger.info('update state:'+update_process_url)
+            http_request = urllib2.Request(update_process_url)
+            urllib2.urlopen(http_request)
+            logger.info('update finished:'+update_process_url)
+            if len(config[feature_type]) > 0:
+                config_all = dict(config_all, **config)
+        logger.info(json.dumps(config_all))
+        #完成后更新任务状态
+        complete_url += '1'
+        logger.info('task complete :' + complete_url)
+        data = json.dumps(config_all).encode('utf-8')
+        http_request = urllib2.Request(complete_url, data=data, headers={'Content-Type': 'application/json'})
+        urllib2.urlopen(http_request)
+        logger.info('task complete finished: '+complete_url)
+    except Exception, e:
+        traceback.print_exc()
+        #完成后更新任务状态
+        complete_url += '0'
+        data = urllib2.urlencode({'errorMessage': str(e)})
+        http_request = urllib2.Request(complete_url, data=data)
+        urllib2.urlopen(http_request)
+
+# 获取当前时间
 get_now_milli_time = lambda: int(time.time() * 1000)
 
+"""获取OSM数据
+    Args:
+        bbox: 数据范围
+        feature_type: 数据类型
+        ordercode:订单编号
+    Returns:
+        dict 返回结果
+        dict.feature_type:数据存放路径
+"""
 def getOSMData(extent, feature_type):
-    print('feature_type:' + feature_type + ' start......')
+    logger.info('feature_type:' + feature_type + ' start......')
     boundary = Polygon([(extent['min_lon'], extent['min_lat']), (extent['min_lon'], extent['max_lat']),
                         (extent['max_lon'], extent['max_lat']), (extent['max_lon'], extent['min_lat'])])
     result = None
@@ -132,13 +193,13 @@ def getOSMData(extent, feature_type):
         result = df
         if not df.empty:
             result = df[df.type == 'Point'][['geometry', 'amenity']]
-    elif feature_type == 'education':
-        df = osm.query_osm('node', boundary, recurse='down',
-                           tags=['amenity=college', 'amenity=school', 'amenity=university', 'amenity=kindergarten'],
-                           operation='or')
-        result = df
-        if not df.empty:
-            result = df[df.type == 'Point'][['geometry', 'amenity']]
+    # elif feature_type == 'education':
+    #     df = osm.query_osm('node', boundary, recurse='down',
+    #                        tags=['amenity=college', 'amenity=school', 'amenity=university', 'amenity=kindergarten'],
+    #                        operation='or')
+    #     result = df
+    #     if not df.empty:
+    #         result = df[df.type == 'Point'][['geometry', 'amenity']]
     config_dict = {feature_type: ''}
     if result is not None:
         if not result.empty:
@@ -154,7 +215,7 @@ def getOSMData(extent, feature_type):
             # output = open(output_filepath, 'w')
             # output.write(geojson_str)
             # output.close()
-    print('feature_type:' + feature_type + ' end,featureCount is '+str(len(result)))
+    logger.info('feature_type:' + feature_type + ' end,featureCount is '+str(len(result)))
     return config_dict
     # result.plot()
     # plt.show()
@@ -215,4 +276,5 @@ def isNum2(value):
         return True
 
 if __name__ == '__main__':
+    logger.info('server started')
     app.run(host="0.0.0.0", port=5060)
