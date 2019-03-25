@@ -18,8 +18,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 outputPath = 'e:\\osmdownloader'
 defaultHeight = 15
-callback_address = 'http://192.168.10.235:8888/downloadData/'
-featureTypeList = ['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station','restaurant', 'bank']
+callback_address = 'http://192.168.10.103:8888/downloadData/'
+# featureTypeList = ['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station','restaurant', 'bank']
+featureTypeList = ['building']
 
 executor = ThreadPoolExecutor(max_workers=4)
 app = Flask(__name__)
@@ -39,7 +40,11 @@ def hello():
 def processData():
     try:
         boundary_param = request.args['bbox']
-        openid = request.headers["Openid"]
+        headers = dict(request.headers)
+        if headers.has_key("Openid"):
+            openid = headers["Openid"]
+        else:
+            openid = 'oLX7p04daC2OdoZCbP6VihD_0XCo'
         task_code = request.args['code']
         boundary = boundary_param.split(',')
         extent = dict()
@@ -72,6 +77,7 @@ def task_run(task_code,extent,openid):
 
     complete_url = callback_address + 'complete?code=' + task_code + '&success='
     try:
+        # raise RuntimeError('testError')
         for feature_type in featureTypeList:
             config = getOSMData(extent, feature_type)
             percent += interval
@@ -97,9 +103,10 @@ def task_run(task_code,extent,openid):
         traceback.print_exc()
         #完成后更新任务状态
         complete_url += '0'
-        data = urllib2.urlencode({'errorMessage': str(e)})
-        http_request = urllib2.Request(complete_url, data=data,headers={'OpenId':openid})
+        logger.info('task failed message :' + str(e))
+        http_request = urllib2.Request(complete_url, data=str(e),headers={'Content-Type': 'application/text','OpenId':openid})
         urllib2.urlopen(http_request)
+        logger.info('task failed finished :' + complete_url)
 
 # 获取当前时间
 get_now_milli_time = lambda: int(time.time() * 1000)
