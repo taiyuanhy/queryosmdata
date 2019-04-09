@@ -14,10 +14,10 @@ from flask import Flask
 from flask import request
 import traceback
 import urllib2
-import logging
 import logging.handlers
 from concurrent.futures import ThreadPoolExecutor
 import MergeBuilding
+import log_handler
 
 outputPath = 'e:\\osmdownloader'
 # outputPath = '/uinnova/citybuilder/osm/osmdata'
@@ -141,7 +141,7 @@ def getOSMData(extent, feature_type):
         result = df
         if not df.empty:
             result = df[df.type == 'LineString'][['highway', 'geometry']]
-            result = mergeGeoDataFrameByField(result, 'highway')
+            result = mergeGeoDataFrameByField(result, 'highway',feature_type)
     elif feature_type == 'primary':
         df = osm.query_osm('way', boundary, recurse='down',
                            tags=['highway=primary', 'highway=primary_link', 'highway=trunk', 'highway=trunk_link'],
@@ -149,7 +149,7 @@ def getOSMData(extent, feature_type):
         result = df
         if not df.empty:
             result = df[df.type == 'LineString'][['highway', 'geometry']]
-            result = mergeGeoDataFrameByField(result, 'highway')
+            result = mergeGeoDataFrameByField(result, 'highway',feature_type)
     elif feature_type == 'secondary':
         df = osm.query_osm('way', boundary, recurse='down',
                            tags=['highway=secondary', 'highway=secondary_link', 'highway=tertiary',
@@ -158,14 +158,14 @@ def getOSMData(extent, feature_type):
         result = df
         if not df.empty:
             result = df[df.type == 'LineString'][['highway', 'geometry']]
-            result = mergeGeoDataFrameByField(result, 'highway')
+            result = mergeGeoDataFrameByField(result, 'highway',feature_type)
     elif feature_type == 'smallRoad':
         df = osm.query_osm('way', boundary, recurse='down', tags=['highway=residential'],
                            operation='or', way_type='Line')
         result = df
         if not df.empty:
             result = df[df.type == 'LineString'][['highway', 'geometry']]
-            result = mergeGeoDataFrameByField(result, 'highway')
+            result = mergeGeoDataFrameByField(result, 'highway',feature_type)
     elif feature_type == 'building':
         df = osm.query_osm('way', boundary, recurse='down', tags='building', way_type='Polygon')
         columns = df.columns.values.tolist()
@@ -188,13 +188,13 @@ def getOSMData(extent, feature_type):
         if not df.empty:
             result = df[df.type == 'Polygon'][['geometry']]
             result['natural'] = 'green'
-            result = mergeGeoDataFrameByField(result, 'natural')
+            result = mergeGeoDataFrameByField(result, 'natural',feature_type)
     elif feature_type == 'water':
         df = osm.query_osm('way', boundary, recurse='down', tags='natural=water', way_type='Polygon')
         result = df
         if not df.empty:
             result = df[df.type == 'Polygon'][['geometry','natural']]
-            result = mergeGeoDataFrameByField(result, 'natural')
+            result = mergeGeoDataFrameByField(result, 'natural',feature_type)
     elif feature_type == 'station':
         df = osm.query_osm('node', boundary, recurse='down', tags='railway=station')
         result = df
@@ -241,7 +241,12 @@ def getOSMData(extent, feature_type):
 def geometry_is_valid(geometry):
     return geometry.is_valid
 
-def mergeGeoDataFrameByField(geodataframe, field):  
+"""根据某一个字段对数据进行合并
+geodataframe 待合并的geodataframe
+field 根据此字段合并
+value 合并后field字段对应的属性值
+"""
+def mergeGeoDataFrameByField(geodataframe, field ,value=None):
     result = gpd.GeoDataFrame()  
     geometry_list = geodataframe['geometry'].tolist()
     #过滤掉有错误的geometry
@@ -249,7 +254,9 @@ def mergeGeoDataFrameByField(geodataframe, field):
 #     merge all geometries into one multiGeos
     multigeos = cascaded_union(geometry_list)
     result['geometry'] = gpd.GeoSeries(multigeos)
-    result[field] = [field]
+    if value is None :
+        value = field
+    result[field] = [value]
     return result
 
 def handleBuildingData(geodataframe):
@@ -299,32 +306,15 @@ def isNum(obj):
     except Exception:
         return False
 
-
-def make_dir(make_dir_path):
-    path = make_dir_path.strip()
-    if not os.path.exists(path):
-        os.makedirs(path)
-    return path
-
-def set_logger():
-    log_dir_name = "logs"
-    log_file_folder = os.path.abspath(os.path.join(os.path.dirname(__file__))) + os.sep + log_dir_name
-    make_dir(log_file_folder)
-    log_level = logging.DEBUG
-    handler = logging.handlers.TimedRotatingFileHandler('logs/info.log', when='D', interval=1, backupCount=100, encoding='utf-8')
-    handler.suffix = "%Y-%m-%d-%H-%M.log"
-    handler.setLevel(log_level)
-    logging_format = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(filename)s - %(funcName)s - %(lineno)s - %(message)s')
-    handler.setFormatter(logging_format)
-    app.logger.addHandler(handler)
-
 if __name__ != '__main__':
-    set_logger()
+    log_handler.set_logger(logger)
     logger.info('server started by gunicorn')
 
 if __name__ == '__main__':
-    # set_logger()
+    log_handler.set_logger(logger)
     logger.info('server started')
     app.run(host="0.0.0.0", port=5060)
+    # extent = {"max_lon": 116.40938588584932, "min_lat": 39.90488719778235, "max_lat": 39.91178105982178,
+    #  "min_lon": 116.40039836929795}
+    # getOSMData(extent, 'primary')
     # print(isNum('80 m'))
