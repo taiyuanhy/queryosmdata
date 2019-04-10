@@ -263,6 +263,7 @@ def handleBuildingData(geodataframe):
     columns = geodataframe.columns.values
     underground_list = []
     height_list = []
+    print(geodataframe.to_json())
     for i,v in geodataframe.iterrows():
         if 'layer' in columns:
             if isNum(v['layer']):
@@ -275,12 +276,12 @@ def handleBuildingData(geodataframe):
                 height = float(v['height'])
                 height_list.append(height)
                 continue
-        elif 'building:levels' in columns:
-                if isNum(v['building:levels']):
-                    temp_levels = float(v['building:levels'])
-                    height = 3 * temp_levels
-                    height_list.append(height)
-                    continue
+        if 'building:levels' in columns:
+            if isNum(v['building:levels']):
+                temp_levels = float(v['building:levels'])
+                height = 3 * temp_levels
+                height_list.append(height)
+                continue
         v['height'] = height
         height_list.append(height)
     geodataframe['height'] = height_list
@@ -296,12 +297,14 @@ def handleBuildingData(geodataframe):
 # 判断是否为浮点数
 def isNum(obj):
     try:
-        if str is None:
+        if obj is None:
             return False
-        # 因为使用float有一个例外是nan
-        if math.isnan(obj):
-            return False
-        float(obj)
+        if type(obj).__name__ == 'str':
+            float(obj)
+        elif type(obj).__name__ == 'float':
+            # 因为使用float有一个例外是nan
+            if math.isnan(obj):
+                return False
         return True
     except Exception:
         return False
@@ -311,10 +314,8 @@ if __name__ != '__main__':
     logger.info('server started by gunicorn')
 
 if __name__ == '__main__':
-    log_handler.set_logger(logger)
-    logger.info('server started')
-    app.run(host="0.0.0.0", port=5060)
-    # extent = {"max_lon": 116.40938588584932, "min_lat": 39.90488719778235, "max_lat": 39.91178105982178,
-    #  "min_lon": 116.40039836929795}
-    # getOSMData(extent, 'primary')
-    # print(isNum('80 m'))
+    # log_handler.set_logger(logger)
+    # logger.info('server started')
+    # app.run(host="0.0.0.0", port=5060)
+    extent = {"max_lon": 121.50045469229495, "min_lat": 31.236434205120133, "max_lat": 31.244138625156168, "min_lon": 121.49143954437093}
+    getOSMData(extent, 'building')
