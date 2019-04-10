@@ -12,6 +12,13 @@ OSMData = collections.namedtuple('OSMData', ('nodes', 'waynodes', 'waytags',
                                              'relmembers', 'reltags'))
 _crs = fiona.crs.from_epsg(4326)
 
+overpass_url_list = [
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://lz4.overpass-api.de/api/interpreter',
+    'https://z.overpass-api.de/api/interpreter',
+    'http://overpass.openstreetmap.ie/api/interpreter',
+]
+
 # Tags to remove so we don't clobber the output. This list comes from
 # osmtogeojson's index.js (https://github.com/tyrasd/osmtogeojson)
 uninteresting_tags = set([
@@ -152,7 +159,7 @@ def _build_url(typ,operation, bbox=None, recurse=None, tags='', meta=False):
             query += '{typ}{bbox}{queries};{recurse};'.format(
                 typ=typ, bbox=bboxstr, queries=temp_query, recurse=recursestr)
         query += ');out '+metastr+';'
-    url = ''.join(['http://www.overpass-api.de/api/interpreter?',
+    url = ''.join([overpass_url_list[0],'?',
                    urlencode({'data': query})])
     # print(query)
     return url

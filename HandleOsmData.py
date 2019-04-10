@@ -3,6 +3,7 @@ import geopandas_osm as osm
 import math
 import geopandas as gpd
 from shapely.geometry import Polygon
+import re
 from shapely.geometry import MultiLineString
 from shapely.ops import cascaded_union
 # import matplotlib.pyplot as plt
@@ -14,26 +15,31 @@ from flask import request
 import traceback
 import urllib2
 import logging
+import logging.handlers
 from concurrent.futures import ThreadPoolExecutor
+import MergeBuilding
 
 outputPath = 'e:\\osmdownloader'
+# outputPath = '/uinnova/citybuilder/osm/osmdata'
 defaultHeight = 15
-callback_address = 'http://192.168.10.103:8888/downloadData/'
-# featureTypeList = ['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station','restaurant', 'bank']
-featureTypeList = ['building']
-
+callback_address = 'http://127.0.0.1:8888/downloadData/'
+featureTypeList = ['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station','restaurant', 'bank']
+# featureTypeList = ['building']
+mergeCount = 1000
 executor = ThreadPoolExecutor(max_workers=4)
 app = Flask(__name__)
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s',
                     level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = app.logger
 
 @app.route('/')
 def hello_world():
+    logger.info('test')
     return 'osm downloader is running on port 5060'
 
 @app.route('/hello')
 def hello():
+    logger.info('hello')
     return 'osm downloader is running on port 5060'
 
 @app.route('/processData')
@@ -104,8 +110,12 @@ def task_run(task_code,extent,openid):
         #完成后更新任务状态
         complete_url += '0'
         logger.info('task failed message :' + str(e))
+        logger.info('task failed url :' + complete_url)
         http_request = urllib2.Request(complete_url, data=str(e),headers={'Content-Type': 'application/text','OpenId':openid})
-        urllib2.urlopen(http_request)
+        try:
+            urllib2.urlopen(http_request)
+        except Exception, e2:
+            traceback.print_exc()
         logger.info('task failed finished :' + complete_url)
 
 # 获取当前时间
@@ -228,10 +238,14 @@ def getOSMData(extent, feature_type):
     # result.plot()
     # plt.show()
 
+def geometry_is_valid(geometry):
+    return geometry.is_valid
 
 def mergeGeoDataFrameByField(geodataframe, field):  
     result = gpd.GeoDataFrame()  
     geometry_list = geodataframe['geometry'].tolist()
+    #过滤掉有错误的geometry
+    geometry_list = filter(geometry_is_valid,geometry_list)
 #     merge all geometries into one multiGeos
     multigeos = cascaded_union(geometry_list)
     result['geometry'] = gpd.GeoSeries(multigeos)
@@ -244,20 +258,18 @@ def handleBuildingData(geodataframe):
     height_list = []
     for i,v in geodataframe.iterrows():
         if 'layer' in columns:
-            if v['layer'] is not None:
+            if isNum(v['layer']):
                 layer = float(v['layer'])
                 if layer < 0:
                     underground_list.append(i)
         height = defaultHeight
         if 'height' in columns:
-            if v['height'] is not None:
-                temp_height = float(v['height'])
-                if math.isnan(temp_height) is False:
-                    height = temp_height
-                    height_list.append(height)
-                    continue
+            if isNum(v['height']):
+                height = float(v['height'])
+                height_list.append(height)
+                continue
         elif 'building:levels' in columns:
-                if isNum2(v['building:levels']):
+                if isNum(v['building:levels']):
                     temp_levels = float(v['building:levels'])
                     height = 3 * temp_levels
                     height_list.append(height)
@@ -265,24 +277,54 @@ def handleBuildingData(geodataframe):
         v['height'] = height
         height_list.append(height)
     geodataframe['height'] = height_list
+    #删除地下建筑
     geodataframe = geodataframe.drop(index = underground_list)
+    #如果超过一定数量,进行合并
+    if len(geodataframe) > mergeCount:
+        logger.info('start merging building......')
+        geodataframe = MergeBuilding.mergeGeoDataFrameBuilding(geodataframe,'height')
+        logger.info('merge building success......')
     # print(geodataframe.to_json())
     return geodataframe
 # 判断是否为浮点数
-def isNum2(value):
+def isNum(obj):
     try:
-        x = float(value) #此处更改想判断的类型
-    except TypeError:
-        return False
-    except ValueError:
-        return False
-    except Exception as e:
-        return False
-    else:
-        if math.isnan(x):
+        if str is None:
             return False
+        # 因为使用float有一个例外是nan
+        if math.isnan(obj):
+            return False
+        float(obj)
         return True
+    except Exception:
+        return False
+
+
+def make_dir(make_dir_path):
+    path = make_dir_path.strip()
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return path
+
+def set_logger():
+    log_dir_name = "logs"
+    log_file_folder = os.path.abspath(os.path.join(os.path.dirname(__file__))) + os.sep + log_dir_name
+    make_dir(log_file_folder)
+    log_level = logging.DEBUG
+    handler = logging.handlers.TimedRotatingFileHandler('logs/info.log', when='D', interval=1, backupCount=100, encoding='utf-8')
+    handler.suffix = "%Y-%m-%d-%H-%M.log"
+    handler.setLevel(log_level)
+    logging_format = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(filename)s - %(funcName)s - %(lineno)s - %(message)s')
+    handler.setFormatter(logging_format)
+    app.logger.addHandler(handler)
+
+if __name__ != '__main__':
+    set_logger()
+    logger.info('server started by gunicorn')
 
 if __name__ == '__main__':
+    # set_logger()
     logger.info('server started')
     app.run(host="0.0.0.0", port=5060)
+    # print(isNum('80 m'))
