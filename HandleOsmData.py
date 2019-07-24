@@ -18,14 +18,18 @@ import logging.handlers
 from concurrent.futures import ThreadPoolExecutor
 import MergeBuilding
 import log_handler
+import ssl
+#全局取消证书验证
+ssl._create_default_https_context = ssl._create_unverified_context
 
 outputPath = 'e:\\osmdownloader'
 # outputPath = '/uinnova/citybuilder/osm/osmdata'
 defaultHeight = 15
-callback_address = 'http://127.0.0.1:8888/downloadData/'
-featureTypeList = ['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station','restaurant', 'bank']
+callback_address = 'http://127.0.0.1:8888/projectTemplate/'
+featureTypeList =['motorway', 'primary', 'secondary', 'smallRoad', 'building', 'water', 'green', 'station','restaurant', 'bank']
 # featureTypeList = ['building']
 mergeCount = 1000
+timeout = 2*60
 executor = ThreadPoolExecutor(max_workers=4)
 app = Flask(__name__)
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s',
@@ -86,6 +90,10 @@ def task_run(task_code,extent,openid):
         # raise RuntimeError('testError')
         for feature_type in featureTypeList:
             config = getOSMData(extent, feature_type)
+            # 如果下载过程中出现错误,则返回失败
+            if config.has_key('err'):
+                handleError(complete_url, config['err'], openid)
+                return
             percent += interval
             if percent > 100:
                 percent = 100
@@ -108,15 +116,21 @@ def task_run(task_code,extent,openid):
     except Exception, e:
         traceback.print_exc()
         #完成后更新任务状态
-        complete_url += '0'
-        logger.info('task failed message :' + str(e))
-        logger.info('task failed url :' + complete_url)
-        http_request = urllib2.Request(complete_url, data=str(e),headers={'Content-Type': 'application/text','OpenId':openid})
-        try:
-            urllib2.urlopen(http_request)
-        except Exception, e2:
-            traceback.print_exc()
-        logger.info('task failed finished :' + complete_url)
+        handleError(complete_url,e,openid)
+
+def handleError(complete_url,e,openid):
+    # traceback.print_exc()
+    # 完成后更新任务状态
+    complete_url += '0'
+    logger.info('task failed message :' + str(e))
+    logger.info('task failed url :' + complete_url)
+    http_request = urllib2.Request(complete_url, data=str(e),
+                                   headers={'Content-Type': 'application/text', 'OpenId': openid})
+    try:
+        urllib2.urlopen(http_request)
+    except Exception, e2:
+        traceback.print_exc()
+    logger.info('task failed finished :' + complete_url)
 
 # 获取当前时间
 get_now_milli_time = lambda: int(time.time() * 1000)
@@ -167,7 +181,10 @@ def getOSMData(extent, feature_type):
             result = df[df.type == 'LineString'][['highway', 'geometry']]
             result = mergeGeoDataFrameByField(result, 'highway',feature_type)
     elif feature_type == 'building':
-        df = osm.query_osm('way', boundary, recurse='down', tags='building', way_type='Polygon')
+        df = osm.query_osm('way', boundary, recurse='down', tags='building', way_type='Polygon',timeout=timeout)
+        if type(df).__name__ == 'dict':
+            print(json.dumps(df))
+            return df
         columns = df.columns.values.tolist()
         filter_list = ['geometry', 'building']
         if 'height' in columns:
@@ -263,7 +280,10 @@ def handleBuildingData(geodataframe):
     columns = geodataframe.columns.values
     underground_list = []
     height_list = []
-    print(geodataframe.to_json())
+    # 未合并的建筑数据输出到硬盘
+    # output = open(outputPath+os.sep+'building_unmerged_'+str(get_now_milli_time()) + '.geojson', 'w')
+    # output.write(geodataframe.to_json())
+    # output.close()
     for i,v in geodataframe.iterrows():
         if 'layer' in columns:
             if isNum(v['layer']):
@@ -278,6 +298,7 @@ def handleBuildingData(geodataframe):
                 continue
         if 'building:levels' in columns:
             if isNum(v['building:levels']):
+                # print(v['building:levels'])
                 temp_levels = float(v['building:levels'])
                 height = 3 * temp_levels
                 height_list.append(height)
@@ -299,7 +320,7 @@ def isNum(obj):
     try:
         if obj is None:
             return False
-        if type(obj).__name__ == 'str':
+        if type(obj).__name__ == 'str' or type(obj).__name__ == 'unicode':
             float(obj)
         elif type(obj).__name__ == 'float':
             # 因为使用float有一个例外是nan
@@ -309,13 +330,29 @@ def isNum(obj):
     except Exception:
         return False
 
+def testDownload(extent):
+    for feature in featureTypeList:
+        getOSMData(extent,feature)
+
+
 if __name__ != '__main__':
     log_handler.set_logger(logger)
     logger.info('server started by gunicorn')
 
 if __name__ == '__main__':
-    # log_handler.set_logger(logger)
-    # logger.info('server started')
-    # app.run(host="0.0.0.0", port=5060)
-    extent = {"max_lon": 121.50045469229495, "min_lat": 31.236434205120133, "max_lat": 31.244138625156168, "min_lon": 121.49143954437093}
-    getOSMData(extent, 'building')
+#     print(111)
+    log_handler.set_logger(logger)
+    logger.info('server started')
+    app.run(host="0.0.0.0", port=5060)
+
+    # print(isNum('\u5f6d\u6811\u6797\u7f16\u8f91\u7684\u6d4b\u8bd5\u6570\u636e'))
+    #116.31757748306245,39.9045864219624,116.43467545165014,39.99434794896722"
+    # ext = '116.35512709290839,39.90387410973224,116.36681878444415,39.91284148570492'
+    # ext = ext.split(',')
+    # extent = {"max_lon": float(ext[2]), "min_lat": float(ext[1]), "min_lon": float(ext[0]),"max_lat": float(ext[3])}
+#     extent = {"max_lon":116.31757748306245, "min_lat":  39.9045864219624, "min_lon":116.35467545165014, "max_lat": 39.92434794896722}
+#     testDownload(extent)
+    # handleError(callback_address + 'complete?code=9&success=','error','zzzzzzzz')
+
+    # gdf = gpd.GeoDataFrame.from_file('E:\\osmdownloader\\building_unmerged_1555313776171.geojson')
+    # handleBuildingData(gdf)
